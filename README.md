@@ -9,6 +9,8 @@ The whole round trip runs in Docker:
 
 Out of the box it loads the example guidelines of [cpg-example](https://github.com/wardweistra/cpg-example) and their test patients.
 
+![A recommendation card at the top of a patient chart in the EHR](docs/images/chart-card.png)
+
 ```mermaid
 flowchart LR
   subgraph EHR["EHR: OpenMRS 3 (own data model, not FHIR)"]
@@ -39,11 +41,11 @@ docker compose up -d --build
 docker compose logs -f loader
 ```
 
-The loader waits until everything is up, loads the guidelines and the test patients, and ends by listing the test patients with a link to their chart. The first start takes several minutes, because OpenMRS then creates its database; later starts take a minute or two.
+The loader waits until everything is up, loads the guidelines and the test patients, and ends by listing the test patients with a link to their chart. The first start takes 5 to 10 minutes, because OpenMRS then creates its database; later starts take a few minutes.
 
 | | URL | Login |
 |---|---|---|
-| EHR | <http://localhost:8081/openmrs/spa> | `admin` / `Admin123` (administrator), `doctor` / `Doctor123` (clinician) |
+| EHR | <http://localhost:8081/openmrs/spa> | `admin` / `Admin123` (administrator, and a clinician too), `doctor` / `Doctor123` (clinician, view only) |
 | CDS service: discovery | <http://localhost:8080/cds-services> | |
 | CDS service: FHIR API (for Postman, `$apply`) | <http://localhost:8080/fhir> | |
 
@@ -59,6 +61,8 @@ Ports and versions can be changed with environment variables (or a `.env` file):
 2. Open the app menu (top right) → **System Administration** → **CDS Hooks**.
 3. Enter the discovery URL of the CDS service, `http://cds:8080/cds-services`, and choose **Add**. The EHR asks the service what it offers and lists the answer: one service per guideline, each for the `patient-view` hook.
 4. Tick the services that clinicians should see. Changes are saved as you make them.
+
+![The CDS Hooks administration page with two services enabled](docs/images/admin-cds-hooks.png)
 
 `http://cds:8080` is the address of the CDS service as the EHR's server sees it; in a browser the same service is at `http://localhost:8080`.
 
@@ -84,7 +88,9 @@ The two "Refused" patients behave differently than their test case says, and tha
 
 ### 3. Change something in the EHR
 
-Open the chart of **Needs DailyApple** and prescribe any medication (**Medications** → **Add**; the EHR first asks to start a visit). Back at the top of the chart choose **Refresh**: besides the apple, a spoonful of sugar is now recommended, because the patient has a medication.
+Logged in as `admin`, open the chart of **Needs DailyApple** and prescribe any medication: **Medications** → **Record active medications**, start a visit when the EHR asks for one, search for a drug (e.g. "aspirin"), choose **Order form**, fill it in, and **Sign and close** the order basket. Back at the top of the chart choose **Refresh**: besides the apple, a spoonful of sugar is now recommended, because the patient has a medication.
+
+Use `admin` for this: the `doctor` account of the OpenMRS demo data can open charts, but is not allowed to start a visit.
 
 To put all test patients back in their original state: `docker compose run --rm loader patients`.
 
