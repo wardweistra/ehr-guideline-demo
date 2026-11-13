@@ -1,0 +1,121 @@
+# EHR + CDS Hooks + guideline demo. See README.md.
+#
+#   EHR (OpenMRS 3)                              CDS service (HAPI FHIR)
+#   browser -> ehr -> gateway -> frontend/backend      cds
+#                |                                      ^  |
+#                +---- CDS Hooks call (relay) ----------+  |
+#                ^                                         |
+#                +---- FHIR API (patient data) ------------+
+name: ehr-guideline-demo
+
+services:
+  # ---------------------------------------------------------------------------
+  # CDS service: stock HAPI FHIR with clinical reasoning (CQL, $apply) and CDS
+  # Hooks. Holds the guidelines; offers each PlanDefinition on /cds-services.
+  # ---------------------------------------------------------------------------
+  cds:
+    image: hapiproject/hapi:${HAPI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      hapi.fhir.cr.enabled: "true"
+      hapi.fhir.cdshooks.enabled: "true"
+    ports:
+      - "${CDS_PORT:-8080}:8080"
+
+  # ---------------------------------------------------------------------------
+  # EHR: the stock OpenMRS 3 reference application (which keeps its data in its
+  # own relational model, not in FHIR), with a CDS Hooks module in the frontend.
+  # ---------------------------------------------------------------------------
+
+  # Entry point of the EHR, for browsers and for CDS services (ehr/edge/nginx.conf)
+  ehr:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    volumes:
+      - ./ehr/edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${EHR_PORT:-8081}:80"
+
+  gateway:
+    image: openmrs/openmrs-reference-application-3-gateway:${O3_TAG:-3.8.0}
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    build:
+      context: ./ehr/frontend
+      args:
+        O3_TAG: ${O3_TAG:-3.8.0}
+    restart: unless-stopped
+    environment:
+      SPA_PATH: /openmrs/spa
+      API_URL: /openmrs
+      SPA_CONFIG_URLS: /openmrs/spa/config-core_demo.json
+      SPA_DEFAULT_LOCALE:
+    depends_on:
+      - backend
+
+  backend:
+    image: openmrs/openmrs-reference-application-3-backend:${O3_TAG:-3.8.0}
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      OMRS_CONFIG_MODULE_WEB_ADMIN: "true"
+      OMRS_CONFIG_AUTO_UPDATE_DATABASE: "true"
+      OMRS_CONFIG_CREATE_TABLES: "true"
+      OMRS_CONFIG_CONNECTION_SERVER: db
+      OMRS_CONFIG_CONNECTION_DATABASE: openmrs
+      OMRS_CONFIG_CONNECTION_USERNAME: openmrs
+      OMRS_CONFIG_CONNECTION_PASSWORD: openmrs
+    volumes:
+      - openmrs-data:/openmrs/data
+      # Which code systems the EHR knows, and under which FHIR system URL (see README)
+      - ./ehr/backend/openmrs_config/conceptsources/guideline-demo:/openmrs/distribution/openmrs_config/conceptsources/guideline-demo:ro
+      - ./ehr/backend/openmrs_config/fhirconceptsources/guideline-demo:/openmrs/distribution/openmrs_config/fhirconceptsources/guideline-demo:ro
+
+  db:
+    image: mariadb:10.11.7
+    restart: unless-stopped
+    command: "mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci"
+    environment:
+      MYSQL_DATABASE: openmrs
+      MYSQL_USER: openmrs
+      MYSQL_PASSWORD: openmrs
+      MYSQL_ROOT_PASSWORD: openmrs
+    volumes:
+      - db-data:/var/lib/mysql
+
+  # ---------------------------------------------------------------------------
+  # Loader: puts the guidelines in the CDS service and the guidelines' test
+  # patients in the EHR. Runs once at "docker compose up" (waiting until both
+  # are ready), and on demand: docker compose run --rm loader [guidelines|patients]
+  # ---------------------------------------------------------------------------
+  loader:
+    image: node:22-alpine
+    restart: "no"
+    depends_on:
+      - cds
+      - ehr
+    environment:
+      CDS_URL: http://cds:8080
+      EHR_URL: http://ehr/openmrs
+      EHR_USER: ${EHR_USER:-admin}
+      EHR_PASSWORD: ${EHR_PASSWORD:-Admin123}
+      GUIDELINES_REPO: ${GUIDELINES_REPO:-https://github.com/wardweistra/cpg-example}
+      DEFAULT_HOOK: ${DEFAULT_HOOK:-patient-view}
+    volumes:
+      - ./loader:/loader:ro
+      # A local guideline project; when empty, GUIDELINES_REPO is downloaded
+      - ${GUIDELINES_DIR:-./guidelines}:/guidelines:ro
+      - ./ehr/backend/openmrs_config/fhirconceptsources/guideline-demo:/codesystems:ro
+    entrypoint: ["node", "/loader/load.js"]
+    command: ["all"]
+
+volumes:
+  openmrs-data: ~
+  db-data: ~
