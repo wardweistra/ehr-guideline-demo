@@ -109,55 +109,56 @@
   // Runs one prefetch template, e.g. "MedicationRequest?subject=Patient/{{context.patientId}}",
   // against the EHR's own FHIR API.
   async function runPrefetch(template, context) {
-    const query = template.replace(/{{\s*context\.(\w+)\s*}}/g, (_, name) => {
-      // Ids are sent with their resource type (userId) or without (patientId); templates add "Patient/" themselves
-      return encodeURIComponent(String(context[name] ?? '')).replace(/%2F/g, '/')
-    })
-    if (query.includes('{{')) return undefined // a token this EHR does not support
+    const filled = template.replace(/{{\s*context\.(\w+)\s*}}/g, (_, name) => String(context[name] ?? ''))
+    if (filled.includes('{{')) return undefined // a token this EHR does not support
+    // Encode the search parameters: codes are written as system|code, and servers refuse a bare "|"
+    const [path, search] = filled.split('?')
+    const query = search ? `${path}?${new URLSearchParams(search)}` : path
     return fetchJson(`${base()}/ws/fhir2/R4/${query}`, { headers: { Accept: 'application/fhir+json' } })
   }
 
   // Fires a hook: calls every enabled service for it and returns one result per service.
   async function fireHook(hook, context, config) {
     const session = await rest('/session')
-    const services = config.endpoints.flatMap((endpoint) =>
-      endpoint.services.filter((s) => s.enabled && s.hook === hook).map((service) => ({ endpoint, service })),
-    )
-    if (session.currentProvider?.uuid) context = { userId: `Practitioner/${session.currentProvider.uuid}`, ...context }
+    context = { userId: `Practitioner/${session.currentProvider?.uuid || session.user?.uuid}`, ...context }
+    // The access token with which CDS services may read from the EHR's FHIR API (see ehr/edge/nginx.conf)
+    const fhirAuthorization = config.fhirServer ? await fetchJson(`${base()}/cds-hooks-token`) : undefined
 
-    return Promise.all(
-      services.map(async ({ endpoint, service }) => {
-        const request = { hook, hookInstance: crypto.randomUUID(), context }
-        if (config.fhirServer) {
-          request.fhirServer = config.fhirServer
-          // The access token is the user's EHR session, so the CDS service sees what this user may see
-          request.fhirAuthorization = {
-            access_token: session.sessionId,
-            token_type: 'Bearer',
-            expires_in: 300,
-            scope: 'user/*.read',
-            subject: 'cds-hooks-client',
-          }
-        }
-        try {
-          if (config.sendPrefetch && service.prefetch) {
-            request.prefetch = {}
-            await Promise.all(
-              Object.entries(service.prefetch).map(async ([key, template]) => {
-                // A failed prefetch is left out; the CDS service may then fetch the data itself
-                const data = await runPrefetch(template, context).catch(() => undefined)
-                if (data) request.prefetch[key] = data
-              }),
-            )
-          }
-          const url = `${endpoint.url.replace(/\/$/, '')}/${encodeURIComponent(service.id)}`
-          const response = await relay(url, { method: 'POST', body: JSON.stringify(request) })
-          return { service, cards: response?.cards || [] }
-        } catch (error) {
-          return { service, cards: [], error: error.message }
-        }
+    const perEndpoint = await Promise.all(
+      config.endpoints.map(async (endpoint) => {
+        const enabled = endpoint.services.filter((s) => s.enabled && s.hook === hook)
+        if (enabled.length === 0) return []
+        // Ask the CDS service what it offers right now, as its services (and the
+        // data they ask for) change when guidelines are reloaded
+        const offered = await discover(endpoint.url).catch(() => undefined)
+        return Promise.all(
+          enabled.map(async (configured) => {
+            const service = offered ? offered.find((s) => s.id === configured.id && s.hook === hook) : configured
+            if (!service) return { service: configured, cards: [], error: 'The CDS service no longer offers this service' }
+            try {
+              const request = { hook, hookInstance: crypto.randomUUID(), context }
+              if (config.fhirServer) Object.assign(request, { fhirServer: config.fhirServer, fhirAuthorization })
+              if (config.sendPrefetch && service.prefetch) {
+                request.prefetch = {}
+                await Promise.all(
+                  Object.entries(service.prefetch).map(async ([key, template]) => {
+                    // A failed prefetch is left out; the CDS service may then fetch the data itself
+                    const data = await runPrefetch(template, context).catch(() => undefined)
+                    if (data) request.prefetch[key] = data
+                  }),
+                )
+              }
+              const url = `${endpoint.url.replace(/\/$/, '')}/${encodeURIComponent(service.id)}`
+              const response = await relay(url, { method: 'POST', body: JSON.stringify(request) })
+              return { service, cards: response?.cards || [] }
+            } catch (error) {
+              return { service: configured, cards: [], error: error.message }
+            }
+          }),
+        )
       }),
     )
+    return perEndpoint.flat()
   }
 
   // ------------------------------------------------------------------ styles --
@@ -185,11 +186,13 @@
     .cdsh-status { font-size: 0.875rem; min-height: 1.25rem; margin-top: 1rem; }
     .cdsh-status-error { color: #da1e28; }
     .cdsh-status-ok { color: #198038; }
-    .cdsh-admin-link { display: block; min-width: 16rem; text-decoration: none; color: inherit; }
-    .cdsh-admin-link-title { color: #525252; font-size: 0.875rem; margin-bottom: 0.5rem; }
-    .cdsh-admin-link-action { color: #0f62fe; font-size: 0.875rem; }
+    .cdsh-admin-link { display: flex; flex-direction: column; box-sizing: border-box; width: 14rem; height: 8rem; padding: 1rem; background: #fff; text-decoration: none; color: #161616; }
+    .cdsh-admin-link:hover { background: #e8e8e8; }
+    .cdsh-admin-link-title { color: #525252; font-size: 0.875rem; margin: 1.5rem 0 0.5rem; }
+    .cdsh-admin-link-action { font-size: 1rem; flex: 1; }
+    .cdsh-admin-link-arrow { color: #0f62fe; text-align: right; line-height: 1; }
 
-    .cdsh-cards { margin: 1rem 1rem 0; }
+    .cdsh-cards { margin: 1rem 1.375rem 0; }
     .cdsh-cards-header { display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; color: #525252; margin-bottom: 0.5rem; }
     .cdsh-cards-header strong { color: #161616; }
     .cdsh-cards-header button { background: none; border: 0; padding: 0; color: #0f62fe; cursor: pointer; font-size: 0.875rem; }
@@ -439,9 +442,10 @@
     root.replaceChildren(
       h(
         'a',
-        { class: 'cds--tile cds--tile--clickable cdsh-admin-link', href: `${window.getOpenmrsSpaBase()}cds-hooks` },
+        { class: 'cdsh-admin-link', href: `${window.getOpenmrsSpaBase()}cds-hooks` },
         h('div', { class: 'cdsh-admin-link-title' }, 'Clinical decision support'),
-        h('div', { class: 'cdsh-admin-link-action' }, 'CDS Hooks →'),
+        h('div', { class: 'cdsh-admin-link-action' }, 'CDS Hooks'),
+        h('div', { class: 'cdsh-admin-link-arrow' }, '→'),
       ),
     )
   }
@@ -506,10 +510,15 @@
             h('div', { class: 'cdsh-card-detail' }, result.error),
           ),
         )
-      const summary =
-        cards.length === 0
-          ? `No recommendations for this patient (${results.length} service${results.length === 1 ? '' : 's'} consulted)`
-          : `${cards.length} recommendation${cards.length === 1 ? '' : 's'}`
+      const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+      const summary = [
+        cards.length > 0
+          ? plural(cards.length, 'recommendation')
+          : `No recommendations for this patient (${plural(results.length - errors.length, 'service')} consulted)`,
+        errors.length > 0 && `${plural(errors.length, 'service')} could not be consulted`,
+      ]
+        .filter(Boolean)
+        .join('; ')
       const top = header(summary)
       top.append(h('button', { onclick: run, title: 'Consult the decision support services again' }, 'Refresh'))
       container.replaceChildren(top, ...cards, ...errors)
