@@ -1,0 +1,78 @@
+diff --git a/input/cql/DailyAppleLogic.cql b/input/cql/DailyAppleLogic.cql
+index 2a59d2e..71cb9b8 100644
+--- a/input/cql/DailyAppleLogic.cql
++++ b/input/cql/DailyAppleLogic.cql
+@@ -10,6 +10,7 @@ context Patient
+ 
+ define "Inclusion Criteria":
+   Patient.active.value
++    and AgeInYears() >= 18
+ 
+ define "Active Daily Apple Order":
+   [MedicationRequest: "Apple"] M
+diff --git a/input/resources/plandefinition/DailyAppleRecommendation.json b/input/resources/plandefinition/DailyAppleRecommendation.json
+index 93fdeb0..e027247 100644
+--- a/input/resources/plandefinition/DailyAppleRecommendation.json
++++ b/input/resources/plandefinition/DailyAppleRecommendation.json
+@@ -11,8 +11,9 @@
+     "action": [
+         {
+             "id": "daily-apple",
+-            "title": "Recommend a daily apple",
+-            "textEquivalent": "An apple a day keeps the doctor away",
++            "title": "Recommend a daily apple (adults)",
++            "priority": "urgent",
++            "textEquivalent": "An apple a day keeps the doctor away. Recommended from the age of 18.",
+             "condition": [
+                 {
+                     "kind": "applicability",
+diff --git a/input/tests/Library/DailyAppleLogic/ChildDailyApple/Patient-ChildDailyApple.json b/input/tests/Library/DailyAppleLogic/ChildDailyApple/Patient-ChildDailyApple.json
+new file mode 100644
+index 0000000..40daad1
+--- /dev/null
++++ b/input/tests/Library/DailyAppleLogic/ChildDailyApple/Patient-ChildDailyApple.json
+@@ -0,0 +1,18 @@
++{
++  "resourceType": "Patient",
++  "id": "ChildDailyApple",
++  "active": true,
++  "name": [
++    {
++      "use": "official",
++      "text": "DailyApple, Child",
++      "family": "DailyApple",
++      "given": [
++        "Child"
++      ]
++    }
++  ],
++  "gender": "female",
++  "birthDate": "2019-03-08",
++  "deceasedBoolean": false
++}
+diff --git a/input/tests/Library/DailyAppleLogic/HasDailyAppleOrder/ServiceRequest-Has-SpoonfulOfSugarOrder.json b/input/tests/Library/DailyAppleLogic/HasDailyAppleOrder/ServiceRequest-Has-SpoonfulOfSugarOrder.json
+new file mode 100644
+index 0000000..3309ce5
+--- /dev/null
++++ b/input/tests/Library/DailyAppleLogic/HasDailyAppleOrder/ServiceRequest-Has-SpoonfulOfSugarOrder.json
+@@ -0,0 +1,20 @@
++{
++  "resourceType": "ServiceRequest",
++  "id": "Has-SpoonfulOfSugarOrder",
++  "status": "active",
++  "intent": "order",
++  "priority": "routine",
++  "code": {
++    "coding": [
++      {
++        "system": "http://fhir.org/guides/cqf/cpg/example/CodeSystem/ExampleCodes",
++        "code": "sugar",
++        "display": "Sugar"
++      }
++    ],
++    "text": "Sugar"
++  },
++  "subject": {
++    "reference": "Patient/HasDailyAppleOrder"
++  }
++}

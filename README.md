@@ -111,7 +111,7 @@ The loader reads a guideline project in the layout of [cpg-example](https://gith
 |---|---|
 | `input/resources`, `input/vocabulary`: PlanDefinition, ActivityDefinition, Library, ValueSet, CodeSystem, ... | CDS service |
 | `input/cql/*.cql` | CDS service, embedded in the Library with the same name |
-| `input/tests/**`, `input/examples/**`: Patients and the resources that refer to them | EHR |
+| `input/tests/**`: Patients and the resources that refer to them (without tests: the bundles in `input/examples`) | EHR |
 
 Load a project from a local folder:
 
@@ -128,6 +128,30 @@ docker compose run --rm loader all https://github.com/wardweistra/cpg-example
 `loader guidelines` and `loader patients` load only that part. Loading is repeatable: guidelines are replaced, and test patients get their orders replaced. To make `docker compose up` load another project by default, set `GUIDELINES_DIR` or `GUIDELINES_REPO` in a `.env` file.
 
 After loading new guidelines, their services appear in the EHR after **Refresh** on the CDS Hooks administration page, where they still have to be enabled.
+
+### Try a change
+
+`docs/example-change.patch` changes cpg-example a little, to see a change travel to the chart:
+
+- test data: a new patient, Child DailyApple (born in 2019), and a sugar order for Has DailyApple;
+- guideline: the daily apple is only recommended from the age of 18 (CQL), and its card gets a new text and becomes a warning (PlanDefinition).
+
+```bash
+git clone https://github.com/wardweistra/cpg-example ../cpg-example
+git -C ../cpg-example apply "$PWD/docs/example-change.patch"
+```
+
+Load the test data, and look at the two patients in the EHR: the child gets the apple card, and Has DailyApple has lost its sugar card.
+
+```bash
+GUIDELINES_DIR=../cpg-example docker compose run --rm loader patients
+```
+
+Then load the guideline, and open the charts again: the child no longer gets the apple card, and Needs DailyApple gets it with the new text, in yellow. Nothing has to change in the EHR.
+
+```bash
+GUIDELINES_DIR=../cpg-example docker compose run --rm loader guidelines
+```
 
 ### What the loader does to guidelines
 

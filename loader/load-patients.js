@@ -54,14 +54,17 @@ const query = (params) => new URLSearchParams(params).toString()
 // ------------------------------------------------------------- test data --
 
 // Groups the project's test resources per patient: { patient, resources }.
+// The test cases (input/tests) are the source; the example bundles
+// (input/examples) are generated from them and only used when there are no tests.
 function collectPatients(dir) {
+  const read = (root) =>
+    walk(root, ['node_modules', 'results'])
+      .map(readResource)
+      .filter(Boolean)
+      .flatMap((r) => (r.resourceType === 'Bundle' ? (r.entry ?? []).map((e) => e.resource).filter(Boolean) : [r]))
   const input = path.join(dir, 'input')
   const roots = fs.existsSync(input) ? [path.join(input, 'tests'), path.join(input, 'examples')] : [dir]
-  const resources = roots
-    .flatMap((root) => walk(root, ['node_modules', 'results']))
-    .map(readResource)
-    .filter(Boolean)
-    .flatMap((r) => (r.resourceType === 'Bundle' ? (r.entry ?? []).map((e) => e.resource).filter(Boolean) : [r]))
+  const resources = roots.map(read).find((found) => found.some((r) => r.resourceType === 'Patient')) ?? []
 
   const patientIdOf = (r) => (r.subject ?? r.patient)?.reference?.match(/Patient\/([^/]+)$/)?.[1]
   const patients = new Map()
@@ -69,8 +72,7 @@ function collectPatients(dir) {
     if (!patients.has(r.id)) patients.set(r.id, { patient: r, resources: new Map() })
   }
   for (const r of resources.filter((r) => r.resourceType !== 'Patient')) {
-    // The same resource may be in a test folder and in an example bundle; ids
-    // are only unique per patient, as test cases reuse them
+    // Ids are only unique per patient, as test cases reuse them
     patients.get(patientIdOf(r))?.resources.set(`${r.resourceType}/${r.id}`, r)
   }
   return [...patients.values()].map((p) => ({ patient: p.patient, resources: [...p.resources.values()] }))
