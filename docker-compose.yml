@@ -14,7 +14,7 @@ services:
   # Hooks. Holds the guidelines; offers each PlanDefinition on /cds-services.
   # ---------------------------------------------------------------------------
   cds:
-    image: hapiproject/hapi:${HAPI_TAG:-latest}
+    image: hapiproject/hapi:${HAPI_TAG:-v8.12.0-2}
     restart: unless-stopped
     environment:
       hapi.fhir.cr.enabled: "true"
@@ -76,9 +76,11 @@ services:
       OMRS_CONFIG_CONNECTION_PASSWORD: openmrs
     volumes:
       - openmrs-data:/openmrs/data
-      # Which code systems the EHR knows, and under which FHIR system URL (see README)
-      - ./ehr/backend/openmrs_config/conceptsources/guideline-demo:/openmrs/distribution/openmrs_config/conceptsources/guideline-demo:ro
-      - ./ehr/backend/openmrs_config/fhirconceptsources/guideline-demo:/openmrs/distribution/openmrs_config/fhirconceptsources/guideline-demo:ro
+      # Additions to the configuration of the reference application (see README):
+      # the code systems the EHR knows, and fewer generated demo patients
+      - ./ehr/backend/openmrs_config/conceptsources/zz-guideline-demo:/openmrs/distribution/openmrs_config/conceptsources/zz-guideline-demo:ro
+      - ./ehr/backend/openmrs_config/fhirconceptsources/zz-guideline-demo:/openmrs/distribution/openmrs_config/fhirconceptsources/zz-guideline-demo:ro
+      - ./ehr/backend/openmrs_config/globalproperties/zz-guideline-demo:/openmrs/distribution/openmrs_config/globalproperties/zz-guideline-demo:ro
 
   db:
     image: mariadb:10.11.7
@@ -106,6 +108,7 @@ services:
     environment:
       CDS_URL: http://cds:8080
       EHR_URL: http://ehr/openmrs
+      EHR_PUBLIC_URL: http://localhost:${EHR_PORT:-8081}/openmrs
       EHR_USER: ${EHR_USER:-admin}
       EHR_PASSWORD: ${EHR_PASSWORD:-Admin123}
       GUIDELINES_REPO: ${GUIDELINES_REPO:-https://github.com/wardweistra/cpg-example}
@@ -114,7 +117,7 @@ services:
       - ./loader:/loader:ro
       # A local guideline project; when empty, GUIDELINES_REPO is downloaded
       - ${GUIDELINES_DIR:-./guidelines}:/guidelines:ro
-      - ./ehr/backend/openmrs_config/fhirconceptsources/guideline-demo:/codesystems:ro
+      - ./ehr/backend/openmrs_config/fhirconceptsources/zz-guideline-demo:/codesystems:ro
     entrypoint: ["node", "/loader/load.js"]
     command: ["all"]
 

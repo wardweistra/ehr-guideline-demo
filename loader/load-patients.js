@@ -17,7 +17,7 @@
 // replaced, which also resets it after a demo.
 //
 // Environment: EHR_URL (default http://ehr/openmrs), EHR_USER, EHR_PASSWORD,
-//              CODESYSTEMS_DIR (default /codesystems)
+//              EHR_PUBLIC_URL (for the links that are printed), CODESYSTEMS_DIR
 'use strict'
 
 const fs = require('fs')
@@ -206,7 +206,7 @@ async function readMetadata() {
     encounterType: byName(await list('encountertype'), 'Order', 'Consultation', 'Visit Note').uuid,
     encounterRole: byName(await list('encounterrole'), 'Clinician', 'Unknown').uuid,
     careSetting: byName(await list('caresetting', { v: 'custom:(uuid,display)' }), 'Outpatient').uuid,
-    dispensingUnit: orderConfig.drugDispensingUnits[0]?.uuid,
+    dispensingUnit: byName(orderConfig.drugDispensingUnits, 'Each', 'Unit', 'Piece', 'Tablet')?.uuid,
     datatypeNA: byName(await list('conceptdatatype'), 'N/A').uuid,
     conceptClasses: Object.fromEntries(classes.map((c) => [c.name, c.uuid])),
   }
@@ -315,7 +315,9 @@ async function loadPatient({ patient, resources }, metadata, dictionary) {
         ...order,
         type: 'drugorder',
         dosingType: 'org.openmrs.FreeTextDosingInstructions',
-        dosingInstructions: dosageText(r),
+        // The order is for a concept, not for a product from the EHR's drug list;
+        // the instructions name it, as the chart shows product names only
+        dosingInstructions: `${r.medicationCodeableConcept.text ?? r.medicationCodeableConcept.coding?.[0]?.display ?? 'Medication'}: ${dosageText(r)}`,
         quantity: 1,
         quantityUnits: metadata.dispensingUnit,
         numRefills: 0,

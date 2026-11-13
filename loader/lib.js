@@ -33,7 +33,7 @@ async function resolveSource(source) {
   const [url, ref = 'HEAD'] = source.replace(/\.git$/, '').split('#')
   const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/)
   if (!match) fail(`Only GitHub repository URLs are supported, got ${source}`)
-  const tarball = `https://codeload.github.com/${match[1]}/${match[2]}/tar.gz/${ref}`
+  const tarball = `https://github.com/${match[1]}/${match[2]}/archive/${ref}.tar.gz`
   log(`Downloading guideline project ${url} (${ref})`)
   const response = await fetch(tarball)
   if (!response.ok) fail(`Cannot download ${tarball} (HTTP ${response.status})`)

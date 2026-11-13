@@ -1,0 +1,10 @@
+<config>
+    <globalProperties>
+        <!-- The reference application generates 50 demo patients on its first
+             start, which takes a quarter of an hour. A few are enough here. -->
+        <globalProperty>
+            <property>referencedemodata.createDemoPatientsOnNextStartup</property>
+            <value>5</value>
+        </globalProperty>
+    </globalProperties>
+</config>
